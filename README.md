@@ -20,7 +20,7 @@ PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
 # # # #-Month (1-12)
 # # # # #-Weekday (0-6)
 # # # # # #-command
-0 3 * * * /home/leet/src/zfs-sync.sh daily 30 >/home/leet/src/zfs-sync/zfs-sync-nuke_daily.log 2>&1
-0 3 * * 6 /home/leet/src/zfs-sync/zfs-sync.sh weekly 4 >/home/leet/src/zfs-sync/zfs-sync-nuke_weekly.log 2>&1
-0 4 1 * * /home/leet/src/zfs-sync/zfs-sync.sh monthly 6 >/home/leet/src/zfs-sync/zfs-sync-nuke_monthlhy.log 2>&1
+0 3 * * * ~/bin/zfs-sync.sh daily 30 > ~/logs/zfs-sync-nuke_daily.log 2>&1
+0 3 * * 6 ~/bin/zfs-sync.sh weekly 4 > ~/logs/zfs-sync-nuke_weekly.log 2>&1
+0 4 1 * * ~/bin/zfs-sync.sh monthly 6 > ~/logs/zfs-sync-nuke_monthly 2>&1
 ```
