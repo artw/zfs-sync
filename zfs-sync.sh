@@ -1,18 +1,22 @@
 #!/bin/sh
-if [ -z "$1" -o "-h" == "$1" ]; then
-  echo "usage $0: <snapshot_name_prefix> [snapshots_to_keep]"
+set -e  # exit on any error
+if [ -z "$1" -o -z "$2" -o "-h" == "$1" ]; then
+  echo "usage $0: <config_file> <snapshot_name_prefix> [snapshots_to_keep]"
   exit 1
 fi
-SNAP_PREFIX=$1
 
-CONFIGFILE=zfs-sync.conf
-if [ -f $CONFIGFILE ]; then
+
+if [ -f $1 ]; then
+  CONFIGFILE=$1
   . $CONFIGFILE
+else
+  echo "specify the config file as the first argument"
 fi
 
-if [ -z "$DEST_HOST" ]; then 
-  echo "DEST_HOST is a required property"
-  exit 1
+SNAP_PREFIX=$2
+
+if [ "$3" -gt 0 ]; then
+  KEEP_SNAPS=$3
 fi
 
 if [ -z "$FSMAP" ]; then
@@ -20,9 +24,15 @@ if [ -z "$FSMAP" ]; then
  exit 1
 fi
 
+if [ -z "$DEST_NAME" ]; then
+ echo "DEST_NAME is a required property"
+ exit 1
+fi
+
+## defaults
 test -z "$SEND_ARGS"      && SEND_ARGS="-Re"
-test -z "$RECV_ARGS"      && RECV_ARGS="-vFu"
-test -z "$LAST_SNAP_PROP" && LAST_SNAP_PROP="lv.make:last_sync_snap"
+test -z "$RECV_ARGS"      && RECV_ARGS="-vFu -o canmount=off"
+test -z "$LAST_SNAP_PROP" && LAST_SNAP_PROP="lv.make.zfs.sync.${DEST_NAME}:last_synced_snapshot"
 test -z "$KEEP_SNAPS"     && KEEP_SNAPS=5
 test -z "$LOCKFILE"       && LOCKFILE="/var/tmp/zfs-sync.lock"
 
@@ -33,13 +43,6 @@ else
   touch $LOCKFILE
 fi
 
-if [ "$2" -gt 0 ]; then
-  KEEP_SNAPS=$2
-fi
-
-ssh_args=$DEST_HOST
-test -z "$DEST_LOGIN" || ssh_args="${DEST_LOGIN}@${ssh_args}"
-test -f "$DEST_KEY" && ssh_args="$ssh_args -i $DEST_KEY"
 
 for fs in $FSMAP; do
   src=$(echo $fs | cut -d ":" -f 1)
@@ -53,25 +56,26 @@ for fs in $FSMAP; do
     last_snap_name=""
     incr=""
   fi
-  new_snap="${SNAP_PREFIX}_$(date +%Y-%m-%d_%H:%M:%S)"
+  new_snap="${DEST_NAME}:${SNAP_PREFIX}:$(date +%Y-%m-%d_%H:%M:%S)"
   new_snap_name=${src}@${new_snap}
 
-  echo "==> Creating snapshot $new_snap_name"
-  zfs snapshot -r $new_snap_name
+  echo "==> Creating recursive snapshot $new_snap_name"
+  $SRC_PREFIX zfs snapshot -r $new_snap_name
   echo ""
 
-
-  echo "==> Replicating $src to $dst"
-  zfs send $SEND_ARGS $incr $new_snap_name | ssh $ssh_args $DEST_PREFIX zfs recv $RECV_ARGS $dst && zfs set $LAST_SNAP_PROP=$new_snap $src
+  echo "==> Replicating [ $src ] to [ $dst ]"
+  $SRC_PREFIX zfs send $SEND_ARGS $incr $new_snap_name | \
+  $DEST_PREFIX zfs recv $RECV_ARGS $dst \
+  && $SRC_PREFIX zfs set $LAST_SNAP_PROP=$new_snap $src
   echo ""
 
   echo "==> Deleting extra snaps"
   i=0
-  for snap in $(zfs list -Hp -o name -t snapshot -r -d 1 $src | sort -r | grep @${SNAP_PREFIX}_ | grep -v $new_snap ); do
+  for snap in $(${SRC_PREFIX} zfs list -Hp -o name -t snapshot -r -d 1 $src | sort -r | grep @${DEST_NAME}:${SNAP_PREFIX}: | grep -v $new_snap ); do
     i=$(($i+1))
     if [ $i -gt $KEEP_SNAPS ]; then
       echo "deleting $snap"
-      zfs destroy -r $snap
+      $SRC_PREFIX zfs destroy -r $snap
     fi
   done
   echo ""
