@@ -33,7 +33,7 @@ fi
 
 ## defaults
 test -z "$SEND_ARGS"      && SEND_ARGS="-Re"
-test -z "$RECV_ARGS"      && RECV_ARGS="-vFu -o canmount=off"
+test -z "$RECV_ARGS"      && RECV_ARGS="-vFu -x canmount"
 test -z "$KEEP_SNAPS"     && KEEP_SNAPS=5
 test -z "$LAST_SNAP_PROP" && LAST_SNAP_PROP="lv.make.zfs.sync.${JOB_NAME}:last_synced_snapshot"
 test -z "$LOCK_PROP"      && LOCK_PROP="lv.make.zfs.sync.${JOB_NAME}:lock"
@@ -124,6 +124,12 @@ for fs in $FSMAP; do
   && $DEST_PREFIX $zfs set $LAST_SNAP_PROP=$new_snap $dest
   echo ""
 
+  for mountable in $($DEST_PREFIX $zfs get -Hp -o name,value -r canmount $dest | sed -e 's/\t/;/g' | grep ";on$" | cut -d ";" -f 1); do
+    echo "===> Setting canmount=off on [ ${dest_host}:${mountable} ]"
+    $DEST_PREFIX $zfs set canmount=off $mountable
+  done
+  echo ""
+
   echo "==> Hold the new snap on dest [ $new_snap_dest ]"
   $DEST_PREFIX $zfs hold -r $lock $new_snap_dest
   $DEST_PREFIX $zfs set $HOLD_TAG_PROP=${lock} $new_snap_dest
@@ -134,11 +140,11 @@ for fs in $FSMAP; do
   $DEST_PREFIX $zfs inherit ${LOCK_PROP} $dest
   
   if [ "-" != "$last_snap_src" -a "-" != "$hold_tag_src" ]; then
-    $SRC_PREFIX $zfs release -r $hold_tag_src ${src}@${last_snap_src}
+    $SRC_PREFIX $zfs release -r $hold_tag_src ${src}@${last_snap_src} || true
   fi
 
   if [ "-" != "$last_snap_dest" -a "-" != "$hold_tag_dest" ]; then
-    $DEST_PREFIX $zfs release -r $hold_tag_dest ${dest}@${last_snap_dest}
+    $DEST_PREFIX $zfs release -r $hold_tag_dest ${dest}@${last_snap_dest} || true
   fi
   echo ""
 
