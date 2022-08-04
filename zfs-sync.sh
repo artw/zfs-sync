@@ -113,6 +113,7 @@ for fs in $FSMAP; do
   echo "==> Creating and holding new recursive snapshot [ $new_snap_src ]"
   $SRC_PREFIX $zfs snapshot -r $new_snap_src
   $SRC_PREFIX $zfs hold -r $lock $new_snap_src
+  $SRC_PREFIX $zfs set $HOLD_TAG_PROP=${lock} $new_snap_src
   echo ""
 
 
@@ -125,9 +126,10 @@ for fs in $FSMAP; do
 
   echo "==> Hold the new snap on dest [ $new_snap_dest ]"
   $DEST_PREFIX $zfs hold -r $lock $new_snap_dest
+  $DEST_PREFIX $zfs set $HOLD_TAG_PROP=${lock} $new_snap_dest
   echo ""
 
-  echo "==> Unlocking [ ${src_host}:${src} ] and releasing previous snapshot"
+  echo "==> Unlocking [ ${src_host}:${src} ] and [ ${dest_host}:${dest} ] and releasing previous snapshot"
   $SRC_PREFIX $zfs inherit ${LOCK_PROP} $src
   $DEST_PREFIX $zfs inherit ${LOCK_PROP} $dest
   
@@ -138,6 +140,7 @@ for fs in $FSMAP; do
   if [ "-" != "$last_snap_dest" -a "-" != "$hold_tag_dest" ]; then
     $DEST_PREFIX $zfs release -r $hold_tag_dest ${dest}@${last_snap_dest}
   fi
+  echo ""
 
   echo "==> Cleaning up extra snaps on ${src_host}:${src}"
   i=0
