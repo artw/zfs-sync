@@ -7,7 +7,7 @@ Both source and destination can be remote or local, you can just prefix whatever
 You don't need sudo, but can just have required permissions on the source and destionation datasets using `zfs allow` command
 - source: `send,destroy,userprop,hold,release`
 - destination: `mount,receive,create,destroy,userprop,canmount,mountpoint,hold,release`
-\
+
 Random fails can leave orphaned locking properties, you can set `FORCE=1` for the command to override.\
 \
 You can nuke all relevant metadata if you set `RESET=1`
