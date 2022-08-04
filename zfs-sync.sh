@@ -1,10 +1,10 @@
 #!/bin/sh
 set -e  # exit on any error
+#set -x  # echo commands
 if [ -z "$1" -o -z "$2" -o "-h" == "$1" ]; then
   echo "usage $0: <config_file> <snapshot_name_prefix> [snapshots_to_keep]"
   exit 1
 fi
-
 
 if [ -f $1 ]; then
   CONFIGFILE=$1
@@ -34,20 +34,35 @@ test -z "$SEND_ARGS"      && SEND_ARGS="-Re"
 test -z "$RECV_ARGS"      && RECV_ARGS="-vFu -o canmount=off"
 test -z "$LAST_SNAP_PROP" && LAST_SNAP_PROP="lv.make.zfs.sync.${DEST_NAME}:last_synced_snapshot"
 test -z "$KEEP_SNAPS"     && KEEP_SNAPS=5
-test -z "$LOCKFILE"       && LOCKFILE="/var/tmp/zfs-sync.lock"
+test -z "$LOCK_PROP"      && LOCK_PROP="lv.make.zfs.sync:lock"
 
-if [ -e $LOCKFILE ]; then
-  echo "Lock file $LOCKFILE exists, can't start"
-  exit 1
-else
-  touch $LOCKFILE
-fi
-
+src_host=$( $SRC_PREFIX hostname -s )
+dest_host=$( $DEST_PREFIX hostname -s )
 
 for fs in $FSMAP; do
   src=$(echo $fs | cut -d ":" -f 1)
-  dst=$(echo $fs | cut -d ":" -f 2)
-  last_snap=$(zfs get -Hp -o value $LAST_SNAP_PROP $src)
+  dest=$(echo $fs | cut -d ":" -f 2)
+  src_locked=$( $SRC_PREFIX zfs get -Hp -o value $LOCK_PROP $src )
+  dest_locked=$( $DEST_PREFIX zfs get -Hp -o value $LOCK_PROP $src )
+
+  # check if already locked
+  if [ "-" != "$src_locked" ]; then
+    echo "(!) [ $src ] is locked by [$src_locked]"
+    echo "run this to unlock: "
+    echo "$SRC_PREFIX zfs inherit $LOCK_PROP $src"
+    return 1
+  elif [ "-" != "$dest_locked" ]; then
+    echo "(!) [ $dest ] is locked by [$dest_locked]"
+    echo "run this to unlock: "
+    echo "$DEST_PREFIX zfs inherit $LOCK_PROP $dest"
+    return 1
+  fi
+
+  # locking fs
+  $SRC_PREFIX zfs set ${LOCK_PROP}="${src_host}:${src} -> ${dest_host}:${dest}; pid: $$" $src
+  $DEST_PREFIX zfs set ${LOCK_PROP}="${src_host}:${src} -> ${dest_host}:${dest}; pid: $$" $dest
+
+  last_snap=$( $SRC_PREFIX zfs get -Hp -o value $LAST_SNAP_PROP $src )
   # incremental stream only if there is a previous snap
   if [ "-" != "$last_snap" ]; then
     last_snap_name=${src}@${last_snap}
@@ -63,13 +78,17 @@ for fs in $FSMAP; do
   $SRC_PREFIX zfs snapshot -r $new_snap_name
   echo ""
 
-  echo "==> Replicating [ $src ] to [ $dst ]"
+  echo "==> Replicating [ ${src_host}:${src} ] to [ ${dest_host}:${dest} ]"
   $SRC_PREFIX zfs send $SEND_ARGS $incr $new_snap_name | \
-  $DEST_PREFIX zfs recv $RECV_ARGS $dst \
+  $DEST_PREFIX zfs recv $RECV_ARGS $dest \
   && $SRC_PREFIX zfs set $LAST_SNAP_PROP=$new_snap $src
   echo ""
 
-  echo "==> Deleting extra snaps"
+  # unlocking
+  $SRC_PREFIX zfs inherit ${LOCK_PROP} $src
+  $DEST_PREFIX zfs inherit ${LOCK_PROP} $dest
+
+  echo "==> Cleaning up extra snaps on ${src_host}:${src}"
   i=0
   for snap in $(${SRC_PREFIX} zfs list -Hp -o name -t snapshot -r -d 1 $src | sort -r | grep @${DEST_NAME}:${SNAP_PREFIX}: | grep -v $new_snap ); do
     i=$(($i+1))
@@ -80,4 +99,3 @@ for fs in $FSMAP; do
   done
   echo ""
 done;
-rm $LOCKFILE
